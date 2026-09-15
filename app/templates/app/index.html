@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  video { display: block; width: 100%; height: 100%; object-fit: contain; }
+  #gate {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: #000; color: #777; font: 15px/1.6 sans-serif; cursor: pointer; user-select: none;
+  }
+</style>
+</head>
+<body>
+<video id="v" playsinline></video>
+<div id="gate">点击开始</div>
+<script>
+const v = document.getElementById('v');
+const gate = document.getElementById('gate');
+let epoch = null, version = null;
+
+// 浏览器不允许未经交互就带声音自动播放，所以开场点一次；之后全部由命令行驱动。
+gate.addEventListener('click', () => { gate.remove(); v.play().catch(() => {}); });
+
+async function tick() {
+  let s;
+  try { s = await (await fetch('/status')).json(); } catch { return; }
+
+  if (s.epoch !== epoch) {                 // 换片：重新加载片源
+    epoch = s.epoch; version = s.version;
+    if (!s.ready) return;
+    v.src = '/video?v=' + s.version;
+    v.addEventListener('loadedmetadata', () => {
+      v.currentTime = s.pos;
+      v.play().catch(() => {});
+    }, { once: true });
+    return;
+  }
+
+  if (s.version !== version) {             // 跳转 / 播放 / 暂停
+    version = s.version;
+    if (Math.abs(v.currentTime - s.pos) > 0.5) v.currentTime = s.pos;
+    s.playing ? v.play().catch(() => {}) : v.pause();
+  }
+}
+
+setInterval(tick, 1000);
+tick();
+
+// 回报实际播放位置，命令行据此做相对快进/倒退。
+setInterval(() => { if (v.src) fetch('/progress?t=' + v.currentTime); }, 2000);
+</script>
+</body>
+</html>
