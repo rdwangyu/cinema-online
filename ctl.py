@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """命令行遥控器 —— 改播放状态，网页跟着走。
 
-  ./ctl.py open <片源> [时间]   打开文件并播放，时间可选（默认从头）
+  ./ctl.py open <片源|URL> [时间]
+                                打开并播放，时间可选（默认从头）。
+                                参数是本地路径就本机发流，是 http(s) 地址
+                                就交给浏览器直接从那边拉（比如 OSS 的地址），
+                                这样不占服务器的公网带宽。
   ./ctl.py seek <时间>          跳到绝对时间：90 / 1:30 / 1:02:03
   ./ctl.py fwd [秒]             快进，默认 30 秒
   ./ctl.py back [秒]            倒退，默认 30 秒
@@ -46,11 +50,13 @@ def where(st):
     所以谁的文件更新就信谁——刚下过指令就信指令，网页报过了就信网页。
     """
     try:
-        if os.path.getmtime(state.STATE_FILE) > os.path.getmtime(state.PROGRESS_FILE):
-            return st["pos"]
+        fresh = os.path.getmtime(state.STATE_FILE) > os.path.getmtime(state.PROGRESS_FILE)
     except OSError:
-        pass
-    return state.read_progress()
+        # progress.json 还不存在 = 网页一次都没回报过（全新部署就是这样，
+        # 它是 gitignore 的）。这时只能信自己的位置；回退去读那个不存在的
+        # 文件会拿到 0.0，等于把刚下的指令丢掉，fwd 就不会累加了。
+        return st["pos"]
+    return st["pos"] if fresh else state.read_progress()
 
 
 def main(argv):
@@ -63,18 +69,25 @@ def main(argv):
 
     if cmd == "open":
         if not rest:
-            print("用法: ctl.py open <片源> [时间]")
+            print("用法: ctl.py open <片源|URL> [时间]")
             return 1
-        path = os.path.abspath(os.path.expanduser(rest[0]))
-        if not os.path.isfile(path):
-            print(f"找不到文件: {path}")
-            return 1
-        st["file"] = path
+        src = rest[0]
+        if src.startswith("http://"):
+            # 页面是 https，加载 http 资源会被浏览器当混合内容拦掉，
+            # 而且失败得很安静（就是黑屏）。索性在这里换掉，并说一声。
+            src = "https://" + src[len("http://"):]
+            print("（地址已由 http:// 换成 https:// —— 否则页面是 https 时会被浏览器拦掉）")
+        if not src.startswith("https://"):
+            src = os.path.abspath(os.path.expanduser(src))
+            if not os.path.isfile(src):
+                print(f"找不到文件: {src}")
+                return 1
+        st["file"] = src
         st["pos"] = parse_time(rest[1]) if len(rest) > 1 else 0.0
         st["playing"] = True
         st["epoch"] += 1
         commit(st)
-        print(f"▶ {path}  @ {fmt(st['pos'])}")
+        print(f"▶ {src}  @ {fmt(st['pos'])}")
 
     elif cmd == "seek":
         if not rest:

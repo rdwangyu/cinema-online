@@ -16,12 +16,16 @@ def index(request):
 def status(request):
     """网页每秒轮询这里，判断该不该跳转、换片。不返回真实路径。"""
     s = state.read()
+    src = s["file"]
+    remote = src.startswith(("http://", "https://"))
     return JsonResponse({
         "version": s["version"],
         "epoch": s["epoch"],
         "pos": s["pos"],
         "playing": bool(s["playing"]),
-        "ready": bool(s["file"]) and os.path.isfile(s["file"]),
+        # 片源是 URL 时浏览器直接去那边取，本机有没有这个文件无所谓。
+        "ready": bool(src) and (remote or os.path.isfile(src)),
+        "url": src if remote else "",
     })
 
 

@@ -31,11 +31,13 @@ async function tick() {
   if (s.epoch !== epoch) {                 // 换片：重新加载片源
     epoch = s.epoch; version = s.version;
     if (!s.ready) return;
-    v.src = 'video?v=' + s.version;
+    // 片源是 OSS 之类的远程地址就直接用它，不然走本机 /video。
+    v.src = s.url || ('video?v=' + s.version);
     v.addEventListener('loadedmetadata', () => {
       v.currentTime = s.pos;
       v.play().catch(() => {});
     }, { once: true });
+    v.load();   // 重开同一部片子时 src 没变，浏览器不会自己重载，得推一把
     return;
   }
 
