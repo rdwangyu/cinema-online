@@ -26,12 +26,12 @@ gate.addEventListener('click', () => { gate.remove(); v.play().catch(() => {}); 
 
 async function tick() {
   let s;
-  try { s = await (await fetch('/status')).json(); } catch { return; }
+  try { s = await (await fetch('status')).json(); } catch { return; }
 
   if (s.epoch !== epoch) {                 // 换片：重新加载片源
     epoch = s.epoch; version = s.version;
     if (!s.ready) return;
-    v.src = '/video?v=' + s.version;
+    v.src = 'video?v=' + s.version;
     v.addEventListener('loadedmetadata', () => {
       v.currentTime = s.pos;
       v.play().catch(() => {});
@@ -50,7 +50,9 @@ setInterval(tick, 1000);
 tick();
 
 // 回报实际播放位置，命令行据此做相对快进/倒退。
-setInterval(() => { if (v.src) fetch('/progress?t=' + v.currentTime); }, 2000);
+// 注意：三个请求都用相对路径，模板里别改回 /status 这种绝对路径 ——
+// nginx 上本应用挂在 /easter-egg/ 子路径下，绝对路径会被 location / 抢走。
+setInterval(() => { if (v.src) fetch('progress?t=' + v.currentTime); }, 2000);
 </script>
 </body>
 </html>
