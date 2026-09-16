@@ -7,54 +7,58 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   video { display: block; width: 100%; height: 100%; object-fit: contain; }
-  #gate {
-    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-    background: #000; color: #777; font: 15px/1.6 sans-serif; cursor: pointer; user-select: none;
+  #snd {
+    position: fixed; right: 14px; bottom: 14px; width: 40px; height: 40px;
+    border: 0; border-radius: 50%; background: rgba(255,255,255,.12); color: #fff;
+    font-size: 17px; line-height: 1; cursor: pointer; opacity: .3; transition: opacity .2s;
   }
+  #snd:hover { opacity: 1; }
 </style>
 </head>
 <body>
-<video id="v" playsinline></video>
-<div id="gate">点击开始</div>
+<video id="v" playsinline muted></video>
+<button id="snd" title="声音">🔇</button>
 <script>
+// 这块屏幕只是块显示屏：放什么、放到哪、放还是停，全看服务端的时间线。
+// 后台在播，谁什么时候进来都从当前进度接上，跟电影院一样。
+// 浏览器不允许没交互就带声音播放，所以先静音自动开始，声音交给右下角。
 const v = document.getElementById('v');
-const gate = document.getElementById('gate');
-let epoch = null, version = null;
+const snd = document.getElementById('snd');
+const OFF = 2.5;      // 落后超过这么多秒才追，别在小抖动上反复 seek
+let epoch = null;
 
-// 浏览器不允许未经交互就带声音自动播放，所以开场点一次；之后全部由命令行驱动。
-gate.addEventListener('click', () => { gate.remove(); v.play().catch(() => {}); });
+snd.addEventListener('click', () => {
+  v.muted = !v.muted;
+  snd.textContent = v.muted ? '🔇' : '🔊';
+});
 
 async function tick() {
   let s;
   try { s = await (await fetch('status')).json(); } catch { return; }
+  if (!s.url) return;
 
-  if (s.epoch !== epoch) {                 // 换片：重新加载片源
-    epoch = s.epoch; version = s.version;
-    if (!s.ready) return;
-    // 片源是 OSS 之类的远程地址就直接用它，不然走本机 /video。
-    v.src = s.url || ('video?v=' + s.version);
+  if (s.epoch !== epoch) {                  // 换片：重载，直接落到当前进度
+    epoch = s.epoch;
     v.addEventListener('loadedmetadata', () => {
       v.currentTime = s.pos;
-      v.play().catch(() => {});
+      if (s.playing) v.play().catch(() => {});
     }, { once: true });
-    v.load();   // 重开同一部片子时 src 没变，浏览器不会自己重载，得推一把
+    v.src = s.url;
+    v.load();    // 重开同一部片子时 src 没变，浏览器不会自己重载，得推一把
     return;
   }
 
-  if (s.version !== version) {             // 跳转 / 播放 / 暂停
-    version = s.version;
-    if (Math.abs(v.currentTime - s.pos) > 0.5) v.currentTime = s.pos;
+  // 对表：慢了就跳过去，电影院不等迟到的人。
+  if (!v.seeking && v.readyState >= 2 && Math.abs(v.currentTime - s.pos) > OFF) {
+    v.currentTime = s.pos;
+  }
+  if (s.playing ? v.paused : !v.paused) {
     s.playing ? v.play().catch(() => {}) : v.pause();
   }
 }
 
 setInterval(tick, 1000);
 tick();
-
-// 回报实际播放位置，命令行据此做相对快进/倒退。
-// 注意：三个请求都用相对路径，模板里别改回 /status 这种绝对路径 ——
-// nginx 上本应用挂在 /easter-egg/ 子路径下，绝对路径会被 location / 抢走。
-setInterval(() => { if (v.src) fetch('progress?t=' + v.currentTime); }, 2000);
 </script>
 </body>
 </html>

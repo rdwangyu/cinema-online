@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""命令行遥控器 —— 改播放状态，网页跟着走。
+"""命令行遥控器 —— 改播放状态，所有网页一起跟着走。
 
-  ./ctl.py open <片源|URL> [时间]
-                                打开并播放，时间可选（默认从头）。
-                                参数是本地路径就本机发流，是 http(s) 地址
-                                就交给浏览器直接从那边拉（比如 OSS 的地址），
-                                这样不占服务器的公网带宽。
+  ./ctl.py open <URL> [时间]    打开远程片源并播放，时间可选（默认从头）
   ./ctl.py seek <时间>          跳到绝对时间：90 / 1:30 / 1:02:03
   ./ctl.py fwd [秒]             快进，默认 30 秒
   ./ctl.py back [秒]            倒退，默认 30 秒
   ./ctl.py play|pause|toggle    播放 / 暂停 / 切换
   ./ctl.py status               查看当前状态
+
+片源只收 http(s) 地址（比如 OSS 上那个）：浏览器直接去那边拉，不占
+服务器带宽。时间线在服务端走，谁什么时候进来都从当前进度接上。
 """
 
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -39,24 +39,9 @@ def fmt(secs):
 
 
 def commit(st):
-    st["version"] += 1
+    """记下这一刻。at 是时间线的锚点，网页据此推算现在该播到哪。"""
+    st["at"] = time.time()
     state.write(st)
-
-
-def where(st):
-    """相对快进/倒退的基准。
-
-    网页回报有最多 2 秒延迟：刚下过指令就再按一次快进，回报还停在旧位置。
-    所以谁的文件更新就信谁——刚下过指令就信指令，网页报过了就信网页。
-    """
-    try:
-        fresh = os.path.getmtime(state.STATE_FILE) > os.path.getmtime(state.PROGRESS_FILE)
-    except OSError:
-        # progress.json 还不存在 = 网页一次都没回报过（全新部署就是这样，
-        # 它是 gitignore 的）。这时只能信自己的位置；回退去读那个不存在的
-        # 文件会拿到 0.0，等于把刚下的指令丢掉，fwd 就不会累加了。
-        return st["pos"]
-    return st["pos"] if fresh else state.read_progress()
 
 
 def main(argv):
@@ -69,7 +54,7 @@ def main(argv):
 
     if cmd == "open":
         if not rest:
-            print("用法: ctl.py open <片源|URL> [时间]")
+            print("用法: ctl.py open <URL> [时间]")
             return 1
         src = rest[0]
         if src.startswith("http://"):
@@ -78,10 +63,8 @@ def main(argv):
             src = "https://" + src[len("http://"):]
             print("（地址已由 http:// 换成 https:// —— 否则页面是 https 时会被浏览器拦掉）")
         if not src.startswith("https://"):
-            src = os.path.abspath(os.path.expanduser(src))
-            if not os.path.isfile(src):
-                print(f"找不到文件: {src}")
-                return 1
+            print(f"片源得是 http(s) 地址，浏览器直接去那边拉：{src}")
+            return 1
         st["file"] = src
         st["pos"] = parse_time(rest[1]) if len(rest) > 1 else 0.0
         st["playing"] = True
@@ -102,20 +85,22 @@ def main(argv):
         delta = parse_time(rest[0]) if rest else 30.0
         if cmd == "back":
             delta = -delta
-        st["pos"] = max(0.0, where(st) + delta)
+        st["pos"] = max(0.0, state.now_pos(st) + delta)
         st["playing"] = True
         commit(st)
         print(f"→ {fmt(st['pos'])}")
 
     elif cmd in ("play", "pause", "toggle"):
+        # 先把时间线收拢到此刻。播放中 st["pos"] 是过期的（真正的位置得靠
+        # now_pos 现算），不收拢就改 playing，暂停会把进度丢回上次下命令的地方。
+        st["pos"] = state.now_pos(st)
         st["playing"] = (not st["playing"]) if cmd == "toggle" else (cmd == "play")
         commit(st)
         print("▶ 播放" if st["playing"] else "⏸ 暂停")
 
     elif cmd == "status":
         print(f"片源  {st['file'] or '(未打开)'}")
-        print(f"指令  {fmt(st['pos'])}  {'播放中' if st['playing'] else '暂停'}")
-        print(f"实际  {fmt(state.read_progress())}  ← 网页回报")
+        print(f"进度  {fmt(state.now_pos(st))}  {'播放中' if st['playing'] else '暂停'}")
 
     else:
         print(f"未知命令: {cmd}\n")
