@@ -18,7 +18,7 @@ INSTALLED_APPS = ["app"]
 
 MIDDLEWARE = ["django.middleware.common.CommonMiddleware"]
 
-ROOT_URLCONF = "thebestintheworld.urls"
+ROOT_URLCONF = "cinema_online.urls"
 
 TEMPLATES = [
     {
@@ -29,4 +29,4 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "thebestintheworld.wsgi.application"
+WSGI_APPLICATION = "cinema_online.wsgi.application"
