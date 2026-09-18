@@ -32,6 +32,24 @@ snd.addEventListener('click', () => {
   snd.textContent = v.muted ? '🔇' : '🔊';
 });
 
+// 字幕约定：跟片源同名的 .vtt（movie.mp4 → movie.vtt），由服务端的 /subs
+// 取回来转一手 —— 同源，省得去动 OSS 的 CORS 配置。
+// 有没有这个文件事先不知道：先挂上去，取到了就显示；404 的话 track 会报
+// 错，自己撤掉，观众什么都看不见，也就当没有字幕。
+function loadSubs(videoUrl) {
+  // 换片不能只靠 load()：它清的是片子自带的内嵌轨，这种 <track> 挂上去的
+  // 外挂轨会留在原地 —— 不主动清，上一部的字幕会跟着播到下一部。
+  v.querySelectorAll('track').forEach(t => t.remove());
+  const track = document.createElement('track');
+  track.kind = 'subtitles';
+  track.label = '字幕';
+  track.srclang = 'zh';
+  track.src = 'subs?u=' + encodeURIComponent(videoUrl);
+  track.addEventListener('error', () => track.remove());
+  v.appendChild(track);
+  track.track.mode = 'showing';   // 动态建的轨默认禁用，得手动点开
+}
+
 async function tick() {
   let s;
   try { s = await (await fetch('status')).json(); } catch { return; }
@@ -45,6 +63,7 @@ async function tick() {
     }, { once: true });
     v.src = s.url;
     v.load();    // 重开同一部片子时 src 没变，浏览器不会自己重载，得推一把
+    loadSubs(s.url);   // 排在 load() 后面，免得被重载流程打断
     return;
   }
 

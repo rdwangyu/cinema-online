@@ -14,6 +14,10 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
+# /subs 代理只许去这些域名取字幕（后缀匹配）。不设限它就是个 SSRF 跳板，
+# 别人能拿它去打 ECS 的元数据接口 100.100.100.200 偷 AK。
+SUBS_ALLOWED_HOSTS = [".aliyuncs.com"]
+
 INSTALLED_APPS = ["app"]
 
 MIDDLEWARE = ["django.middleware.common.CommonMiddleware"]
